@@ -25,7 +25,9 @@ const (
 var (
 	listeningAddress    = flag.String("listeningAddress", ":8080", "Address on which to expose Prometheus metrics.")
 	listeningPath       = flag.String("listeningPath", "/metrics", "Path on which to expose Prometheus metrics.")
+	metricPrefix        = flag.String("metricPrefix", "", "Metric prefix.")
 	muninAddress        = flag.String("muninAddress", "localhost:4949", "munin-node address.")
+	muninIgnore         = flag.String("muninIgnore", "", "List of plugin prefixes to ignore, comma separated.")
 	muninScrapeInterval = flag.Int("muninScrapeInterval", 60, "Interval in seconds between scrapes.")
 	globalConn          net.Conn
 	hostname            string
@@ -176,7 +178,19 @@ func registerMetrics() (err error) {
 		return
 	}
 
+	ignoreList := strings.Split(*muninIgnore, ",")
+	var skip bool
+
 	for _, name := range items {
+		skip = false
+		for _, prefix := range ignoreList {
+			if strings.HasPrefix(name, prefix) {
+				skip = true
+			}
+		}
+
+		if skip { continue }
+
 		graphs = append(graphs, name)
 		configs, graphConfig, err := muninConfig(name)
 		if err != nil {
@@ -184,7 +198,11 @@ func registerMetrics() (err error) {
 		}
 
 		for metric, config := range configs {
-			metricName := strings.Replace(name+"_"+metric, "-", "_", -1)
+			metricParts := []string{name, metric}
+			if *metricPrefix != "" {
+				metricParts = append([]string{*metricPrefix}, metricParts...)
+			}
+			metricName := strings.Replace(strings.Join(metricParts, "_"), "-", "_", -1)
 			desc := graphConfig["graph_title"] + ": " + config["label"]
 			if config["info"] != "" {
 				desc = desc + ", " + config["info"]
@@ -255,7 +273,11 @@ func fetchMetrics() (err error) {
 				log.Printf("Couldn't parse value in line %s, malformed?", line)
 				continue
 			}
-			name := strings.Replace(graph+"_"+key, "-", "_", -1)
+			metricParts := []string{graph, key}
+			if *metricPrefix != "" {
+				metricParts = append([]string{*metricPrefix}, metricParts...)
+			}
+			name := strings.Replace(strings.Join(metricParts, "_"), "-", "_", -1)
 			log.Printf("%s: %f\n", name, value)
 			_, isGauge := gaugePerMetric[name]
 			if isGauge {
