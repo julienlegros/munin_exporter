@@ -266,10 +266,23 @@ func registerMetrics() (err error) {
 			}
 		}
 	}
+	// Built-in metrics
+	muninMetricName := "munin_exporter_fetch_time"
+	gv := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:	muninMetricName,
+			Help:	"Time taken to fetch data from all registered munin plugins",
+			ConstLabels: prometheus.Labels{"type": "gauge"},
+		},
+		[]string{"hostname"},
+	)
+	gaugePerMetric[muninMetricName] = gv
+	prometheus.Register(gv)
 	return nil
 }
 
 func fetchMetrics() (err error) {
+	start := time.Now()
 	for _, graph := range graphs {
 		munin, err := muninCommand("fetch " + graph)
 		if err != nil {
@@ -320,6 +333,8 @@ func fetchMetrics() (err error) {
 			}
 		}
 	}
+	muninMetricName := "munin_exporter_fetch_time"
+	gaugePerMetric[muninMetricName].WithLabelValues(hostname).Set(time.Since(start).Seconds())
 	return
 }
 
