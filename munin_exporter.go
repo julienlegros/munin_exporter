@@ -33,15 +33,51 @@ var (
 	hostname            string
 	graphs              []string
 	gaugePerMetric      map[string]*prometheus.GaugeVec
-	counterPerMetric    map[string]*prometheus.CounterVec
+	counterPerMetric    map[string]*muninCounter
 	muninBanner         *regexp.Regexp
 )
+
+type muninCounter struct {
+	counterDesc   *prometheus.Desc
+	value         float64
+	currentLabels []string
+
+}
+
+func (c *muninCounter) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.counterDesc
+}
+
+func (c *muninCounter) Collect(ch chan<- prometheus.Metric) {
+	ch <- prometheus.MustNewConstMetric(
+		c.counterDesc,
+		prometheus.CounterValue,
+		c.value,
+		c.currentLabels...,
+	)
+}
+
+func (c *muninCounter) UpdateLabels(currentLabels []string, value float64) {
+	c.value = value
+	c.currentLabels = currentLabels
+}
+
+func newMuninCounter(metricName string, desc string, variableLabels []string, constlabels prometheus.Labels) *muninCounter {
+	return &muninCounter{
+		counterDesc: prometheus.NewDesc(
+			metricName,
+			desc,
+			variableLabels,
+			constlabels,
+		),
+	}
+}
 
 func init() {
 	flag.Parse()
 	var err error
 	gaugePerMetric = map[string]*prometheus.GaugeVec{}
-	counterPerMetric = map[string]*prometheus.CounterVec{}
+	counterPerMetric = map[string]*muninCounter{}
 	muninBanner = regexp.MustCompile(`# munin node at (.*)`)
 
 	err = connect()
@@ -210,14 +246,7 @@ func registerMetrics() (err error) {
 			muninType := strings.ToLower(config["type"])
 			// muninType can be empty and defaults to gauge
 			if muninType == "counter" || muninType == "derive" {
-				gv := prometheus.NewCounterVec(
-					prometheus.CounterOpts{
-						Name:        metricName,
-						Help:        desc,
-						ConstLabels: prometheus.Labels{"type": muninType},
-					},
-					[]string{"hostname", "graphname", "muninlabel"},
-				)
+				gv := newMuninCounter(metricName, desc, []string{"hostname", "graphname", "muninlabel"}, prometheus.Labels{"type": muninType})
 				log.Printf("Registered counter %s: %s", metricName, desc)
 				counterPerMetric[metricName] = gv
 				prometheus.Register(gv)
@@ -286,7 +315,7 @@ func fetchMetrics() (err error) {
 			}
 			_, isCounter := counterPerMetric[name]
 			if isCounter {
-				counterPerMetric[name].WithLabelValues(hostname, graph, key).Add(value)
+				counterPerMetric[name].UpdateLabels([]string{hostname, graph, key}, value)
 				continue
 			}
 		}
