@@ -8,7 +8,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -18,8 +20,10 @@ import (
 )
 
 const (
-	proto         = "tcp"
-	retryInterval = 1
+	proto           = "tcp"
+	retryInterval   = 1
+	version_num     = "0.2"
+	version_string  = "munin_exporter, version 0.2"
 )
 
 var (
@@ -29,6 +33,7 @@ var (
 	muninAddress        = flag.String("muninAddress", "localhost:4949", "munin-node address.")
 	muninIgnore         = flag.String("muninIgnore", "", "List of plugin prefixes to ignore, comma separated.")
 	muninScrapeInterval = flag.Int("muninScrapeInterval", 60, "Interval in seconds between scrapes.")
+	version             = flag.Bool("version", false, "Show application version.")
 	globalConn          net.Conn
 	hostname            string
 	graphs              []string
@@ -75,6 +80,10 @@ func newMuninCounter(metricName string, desc string, variableLabels []string, co
 
 func init() {
 	flag.Parse()
+	if *version {
+		fmt.Println(version_string)
+		os.Exit(0)
+	}
 	var err error
 	gaugePerMetric = map[string]*prometheus.GaugeVec{}
 	counterPerMetric = map[string]*muninCounter{}
@@ -267,6 +276,16 @@ func registerMetrics() (err error) {
 		}
 	}
 	// Built-in metrics
+	buildInfoMetric := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:        "munin_exporter_build_info",
+			Help:        "Munin exporter build info",
+			ConstLabels: prometheus.Labels{"type": "gauge"},
+		},
+		[]string{"goversion", "version_num"},
+	)
+	buildInfoMetric.WithLabelValues(runtime.Version(), version_num).Set(1)
+	prometheus.Register(buildInfoMetric)
 	muninMetricName := "munin_exporter_fetch_time"
 	gv := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
